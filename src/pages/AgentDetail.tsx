@@ -103,24 +103,24 @@ export default function AgentDetail() {
     {
       key: 'qty',
       header: 'Quantity',
-      render: (row) => <span className="text-dark-700">{row.qty.toFixed(4)}</span>,
+      render: (row) => <span className="text-dark-700">{(row.qty || 0).toFixed(4)}</span>,
     },
     {
       key: 'price',
       header: 'Price',
-      render: (row) => <span className="text-dark-700">${row.price.toFixed(2)}</span>,
+      render: (row) => <span className="text-dark-700">${(row.price || 0).toFixed(2)}</span>,
     },
     {
       key: 'fee',
       header: 'Fee',
-      render: (row) => <span className="text-dark-500">${row.fee.toFixed(2)}</span>,
+      render: (row) => <span className="text-dark-500">${(row.fee || 0).toFixed(2)}</span>,
     },
     {
       key: 'pnl_realized',
       header: 'PnL',
       render: (row) => (
-        <span className={`font-medium ${row.pnl_realized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-          ${row.pnl_realized.toFixed(2)}
+        <span className={`font-medium ${(row.pnl_realized || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+          ${(row.pnl_realized || 0).toFixed(2)}
         </span>
       ),
     },
@@ -162,24 +162,24 @@ export default function AgentDetail() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label="Profit (Period)"
-          value={`$${agent.profit_period.toFixed(2)}`}
-          delta={agent.profit_period > 0 ? 15.2 : -8.3}
-          deltaDirection={agent.profit_period > 0 ? 'up' : 'down'}
+          value={`$${(agent.profit_period || 0).toFixed(2)}`}
+          delta={(agent.profit_period || 0) > 0 ? 15.2 : -8.3}
+          deltaDirection={(agent.profit_period || 0) > 0 ? 'up' : 'down'}
         />
         <KpiCard
           label="Total Profit"
-          value={`$${agent.profit_all_time.toFixed(2)}`}
+          value={`$${(agent.profit_all_time || 0).toFixed(2)}`}
           helperText="All time"
         />
         <KpiCard
           label="Win Rate"
-          value={`${(agent.win_rate_period * 100).toFixed(1)}%`}
-          helperText={`${agent.trade_count_period} trades`}
+          value={`${((agent.win_rate_period || 0) * 100).toFixed(1)}%`}
+          helperText={`${agent.trade_count_period || 0} trades`}
         />
         <KpiCard
           label="Fitness Score"
-          value={agent.fitness_score.toFixed(2)}
-          helperText={`Gen ${agent.generation}`}
+          value={(agent.fitness_score || 0).toFixed(2)}
+          helperText={`Gen ${agent.generation_index || 1}`}
         />
       </div>
 

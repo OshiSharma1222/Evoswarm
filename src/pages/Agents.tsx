@@ -25,7 +25,10 @@ export default function Agents() {
   useEffect(() => {
     async function loadAgents() {
       try {
+        console.log('Fetching agents from API...');
         const data = await fetchAgents()
+        console.log('Received agents data:', data);
+        console.log('Number of agents:', data?.length);
         setAgents(
           data.map((a: Agent) => ({
             id: a.id,
@@ -39,6 +42,7 @@ export default function Agents() {
             lastHeartbeatAt: a.last_active_at || a.created_at,
           }))
         )
+        console.log('Agents state updated');
       } catch (err) {
         console.error('Failed to load agents:', err)
       } finally {
@@ -75,8 +79,8 @@ export default function Agents() {
       key: 'profitPeriod',
       header: 'Profit (7D)',
       render: (row) => (
-        <span className={row.profitPeriod >= 0 ? 'text-emerald-400 font-medium' : 'text-red-400 font-medium'}>
-          ${row.profitPeriod.toFixed(2)}
+        <span className={(row.profitPeriod || 0) >= 0 ? 'text-emerald-400 font-medium' : 'text-red-400 font-medium'}>
+          ${(row.profitPeriod || 0).toFixed(2)}
         </span>
       ),
     },
@@ -84,21 +88,21 @@ export default function Agents() {
       key: 'profitAllTime',
       header: 'Total Profit',
       render: (row) => (
-        <span className={row.profitAllTime >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-          ${row.profitAllTime.toFixed(2)}
+        <span className={(row.profitAllTime || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+          ${(row.profitAllTime || 0).toFixed(2)}
         </span>
       ),
     },
     {
       key: 'tradeCountPeriod',
       header: 'Trades (7D)',
-      render: (row) => <span className="text-dark-700">{row.tradeCountPeriod}</span>,
+      render: (row) => <span className="text-dark-700">{row.tradeCountPeriod || 0}</span>,
     },
     {
       key: 'winRatePeriod',
       header: 'Win Rate',
       render: (row) => (
-        <span className="text-dark-700">{(row.winRatePeriod * 100).toFixed(1)}%</span>
+        <span className="text-dark-700">{((row.winRatePeriod || 0) * 100).toFixed(1)}%</span>
       ),
     },
     {
