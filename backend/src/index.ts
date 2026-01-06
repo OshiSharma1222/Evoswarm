@@ -14,6 +14,8 @@ import evolutionRouter from './routes/evolution';
 import generationsRouter from './routes/generations';
 import metricsRouter from './routes/metrics';
 import transactionsRouter from './routes/transactions';
+import stakingRouter from './routes/staking';
+import blockchainRouter from './routes/blockchain';
 
 // Import services
 import { initDatabase } from './database/db';
@@ -52,6 +54,8 @@ app.use('/api/generations', generationsRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/metrics', metricsRouter);
 app.use('/api/evolution', evolutionRouter);
+app.use('/api/staking', stakingRouter);
+app.use('/api/blockchain', blockchainRouter);
 
 // Error handler
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

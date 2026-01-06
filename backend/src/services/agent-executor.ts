@@ -2,6 +2,19 @@ import { Server as SocketIOServer } from 'socket.io';
 import { supabase } from '../database/supabase';
 import { AgentDNA } from '../types';
 import { calculateFitness } from './evolution-engine';
+import {
+  executeTrade as executeOnChain,
+  registerAgentOnChain,
+  updateAgentMetricsOnChain,
+  getAgentFromChain,
+  executionRouter,
+  stakingPool,
+} from './blockchain';
+import { ethers } from 'ethers';
+
+// Feature flag for blockchain integration
+const USE_BLOCKCHAIN = process.env.USE_BLOCKCHAIN === 'true';
+const LOG_BLOCKCHAIN_OPS = process.env.LOG_BLOCKCHAIN_OPS !== 'false';
 
 // Strategy interface
 interface StrategyDecision {
@@ -93,11 +106,74 @@ async function executeDecision(
     return { success: true };
   }
 
-  // Simulate transaction (in real implementation, this would call blockchain)
   const mockPrice = state.prices['ETH'] || 2000;
   const mockSlippage = Math.random() * 0.02; // 0-2% slippage
   const mockGas = 0.001 * mockPrice; // ~$2 gas
-  
+
+  // ============================================
+  // BLOCKCHAIN INTEGRATION - Execute on-chain (optional)
+  // ============================================
+  if (USE_BLOCKCHAIN && executionRouter) {
+    try {
+      if (LOG_BLOCKCHAIN_OPS) {
+        console.log(`⛓️  Attempting on-chain execution for agent ${agentId.slice(0, 8)}...`);
+      }
+
+      // Token addresses (for local Hardhat, we use placeholder addresses)
+      const USDC_ADDRESS = process.env.USDC_ADDRESS || '0x0000000000000000000000000000000000000001';
+      const ETH_ADDRESS = process.env.WETH_ADDRESS || '0x0000000000000000000000000000000000000002';
+      
+      const tokenIn = decision.action === 'buy' ? USDC_ADDRESS : ETH_ADDRESS;
+      const tokenOut = decision.action === 'buy' ? ETH_ADDRESS : USDC_ADDRESS;
+
+      const result = await executeOnChain(
+        agentId,
+        decision.action,
+        tokenIn,
+        tokenOut,
+        decision.qty || 0
+      );
+
+      if (result.success && !result.txHash?.startsWith('mock-')) {
+        if (LOG_BLOCKCHAIN_OPS) {
+          console.log(`✅ On-chain trade executed! TX: ${result.txHash?.slice(0, 16)}...`);
+        }
+
+        // Record transaction in database with blockchain reference
+        await supabase
+          .from('transactions')
+          .insert({
+            agent_id: agentId,
+            type: decision.action,
+            symbol: decision.symbol || 'ETH/USDC',
+            qty: decision.qty || 0,
+            price: mockPrice,
+            fee: mockGas,
+            pnl_realized: result.pnl || 0,
+            status: 'filled',
+            tx_hash: result.txHash,
+            on_chain: true,
+          })
+          .select()
+          .single();
+
+        return { success: true, txHash: result.txHash, pnl: result.pnl };
+      }
+      // If result is mock or failed, fall through to simulation
+      if (LOG_BLOCKCHAIN_OPS && !result.success) {
+        console.log(`ℹ️  On-chain failed (${result.error}), using simulation`);
+      }
+    } catch (error: any) {
+      // Silently fall back to simulation - blockchain is optional
+      if (LOG_BLOCKCHAIN_OPS) {
+        console.log(`ℹ️  Blockchain unavailable (${error.message?.slice(0, 50)}), using simulation`);
+      }
+    }
+  }
+
+  // ============================================
+  // SIMULATION MODE - Database only
+  // ============================================
   // Simulate success/failure (95% success rate)
   if (Math.random() > 0.95) {
     return { success: false, error: 'Transaction reverted: insufficient liquidity' };
@@ -117,17 +193,14 @@ async function executeDecision(
     .insert({
       agent_id: agentId,
       type: decision.action,
-      token_in: decision.action === 'buy' ? 'USDC' : 'ETH',
-      token_out: decision.action === 'buy' ? 'ETH' : 'USDC',
-      amount_in: decision.qty || 0,
-      amount_out: (decision.qty || 0) * executedPrice,
-      price_entry: executedPrice,
-      fees: mockGas,
+      symbol: decision.symbol || 'ETH/USDC',
+      qty: decision.qty || 0,
+      price: executedPrice,
+      fee: mockGas,
       pnl_realized: mockPnl,
       status: 'filled',
       tx_hash: `0x${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`,
-      block_number: Math.floor(Date.now() / 1000),
-      gas_used: 150000,
+      on_chain: false,
     })
     .select()
     .single();
@@ -168,6 +241,41 @@ async function updateAgentMetrics(agentId: string, pnl: number): Promise<void> {
     trade_count_period: newTradeCount,
   });
 
+  // ============================================
+  // BLOCKCHAIN INTEGRATION - Sync metrics on-chain (optional)
+  // ============================================
+  if (USE_BLOCKCHAIN && stakingPool) {
+    try {
+      // Only try on-chain sync if we have blockchain connectivity
+      const result = await updateAgentMetricsOnChain(
+        agentId,
+        newProfitAllTime,
+        newTradeCount,
+        fitnessScore
+      );
+      
+      if (result.success && LOG_BLOCKCHAIN_OPS) {
+        console.log(`📊 Agent ${agentId.slice(0, 8)} metrics synced on-chain`);
+      }
+
+      // Distribute profits to stakers if positive PnL (silently skip if no stakers)
+      if (pnl > 0) {
+        try {
+          const agentIdBytes = ethers.id(agentId);
+          await stakingPool.distributeProfits(agentIdBytes, BigInt(Math.floor(pnl * 1e6)));
+          if (LOG_BLOCKCHAIN_OPS) {
+            console.log(`💰 Distributed $${pnl.toFixed(2)} to stakers of agent ${agentId.slice(0, 8)}`);
+          }
+        } catch {
+          // Silently ignore - no stakers is expected
+        }
+      }
+    } catch {
+      // Silently ignore on-chain sync failures - database is source of truth
+    }
+  }
+
+  // Update database
   await supabase
     .from('agents')
     .update({

@@ -6,16 +6,16 @@ import KpiCard from '../components/KpiCard'
 import Section from '../components/Section'
 import StatusPill from '../components/StatusPill'
 import {
-  Agent,
-  DashboardMetrics,
-  fetchAgents,
-  fetchDashboardStats,
-  fetchGenerationMetrics,
-  fetchPnLTimeSeries,
-  fetchTransactions,
-  GenerationMetrics,
-  PnLDataPoint,
-  Transaction,
+    Agent,
+    DashboardMetrics,
+    fetchAgents,
+    fetchDashboardStats,
+    fetchGenerationMetrics,
+    fetchPnLTimeSeries,
+    fetchTransactions,
+    GenerationMetrics,
+    PnLDataPoint,
+    Transaction,
 } from '../lib/api'
 
 // Transformed types for UI

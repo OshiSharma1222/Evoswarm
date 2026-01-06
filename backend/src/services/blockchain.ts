@@ -79,7 +79,7 @@ export async function initBlockchain(): Promise<boolean> {
 // Agent Registry Functions
 export async function registerAgentOnChain(
   agentId: string,
-  generation: number,
+  walletAddress: string,
   dnaHash: string
 ): Promise<{ success: boolean; txHash?: string; error?: string }> {
   try {
@@ -90,7 +90,8 @@ export async function registerAgentOnChain(
     const agentIdBytes = ethers.id(agentId);
     const dnaHashBytes = ethers.id(dnaHash);
     
-    const tx = await agentRegistry.registerAgent(agentIdBytes, generation, dnaHashBytes);
+    // registerAgent(bytes32 agentId, address wallet, bytes32 dnaHash)
+    const tx = await agentRegistry.registerAgent(agentIdBytes, walletAddress, dnaHashBytes);
     const receipt = await tx.wait();
     
     console.log(`📝 Agent ${agentId} registered on-chain. TX: ${receipt.hash}`);
@@ -165,27 +166,42 @@ export async function executeTrade(
 ): Promise<{ success: boolean; txHash?: string; pnl?: number; error?: string }> {
   try {
     if (!executionRouter) {
-      // Simulate trade if no blockchain
+      // Simulate trade if no blockchain connection
       const mockPnl = (Math.random() - 0.4) * amountIn * 0.1;
       return { success: true, txHash: `mock-${Date.now()}`, pnl: mockPnl };
     }
     
     const agentIdBytes = ethers.id(agentId);
     const amountWei = ethers.parseEther(amountIn.toString());
+    const minAmountOut = (amountWei * BigInt(98)) / BigInt(100); // 2% slippage tolerance
+    const txHashBytes = ethers.id(`tx-${agentId}-${Date.now()}`);
     
+    // executeTrade(bytes32 agentId, address tokenIn, address tokenOut, uint256 amountIn, uint256 minAmountOut, bytes32 txHash)
     const tx = await executionRouter.executeTrade(
       agentIdBytes,
-      action === 'buy' ? 0 : 1, // 0 = buy, 1 = sell
       tokenIn,
       tokenOut,
       amountWei,
-      0 // minAmountOut (for slippage protection)
+      minAmountOut,
+      txHashBytes
     );
     const receipt = await tx.wait();
     
-    // Parse PnL from events
-    const event = receipt.logs.find((log: any) => log.fragment?.name === 'TradeExecuted');
-    const pnl = event ? Number(ethers.formatEther(event.args.pnl)) : 0;
+    // Parse TradeExecuted event to get PnL
+    let pnl = 0;
+    for (const log of receipt.logs) {
+      try {
+        const parsed = executionRouter.interface.parseLog({
+          topics: log.topics as string[],
+          data: log.data,
+        });
+        if (parsed?.name === 'TradeExecuted') {
+          pnl = Number(ethers.formatEther(parsed.args.pnl));
+        }
+      } catch {
+        // Not our event, skip
+      }
+    }
     
     return { success: true, txHash: receipt.hash, pnl };
   } catch (error: any) {
@@ -262,4 +278,5 @@ export async function getChainStats(): Promise<{
   }
 }
 
-export { provider, signer, agentRegistry, executionRouter, stakingPool };
+export { agentRegistry, executionRouter, provider, signer, stakingPool };
+

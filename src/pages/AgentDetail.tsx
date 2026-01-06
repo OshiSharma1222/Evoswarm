@@ -1,12 +1,12 @@
-import { ArrowLeft, Activity } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import DataTable, { Column } from '../components/DataTable'
 import KpiCard from '../components/KpiCard'
 import Section from '../components/Section'
 import StatusPill from '../components/StatusPill'
-import { fetchAgent, fetchAgentTransactions, pauseAgent, resumeAgent, type Agent, type Transaction } from '../lib/api'
+import { fetchAgent, fetchAgentTransactions, type Agent, type Transaction } from '../lib/api'
 
 export default function AgentDetail() {
   const { id } = useParams<{ id: string }>()

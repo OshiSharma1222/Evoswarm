@@ -1,6 +1,5 @@
 import dotenv from 'dotenv';
 import { Pool, QueryResult } from 'pg';
-import { supabase } from './supabase';
 
 dotenv.config();
 
