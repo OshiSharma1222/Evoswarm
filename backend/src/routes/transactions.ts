@@ -1,5 +1,5 @@
 import { Request, Response, Router } from 'express';
-import { query } from '../database/db';
+import { supabase } from '../database/supabase';
 
 const router = Router();
 
@@ -16,56 +16,45 @@ router.get('/', async (req: Request, res: Response) => {
       offset = 0 
     } = req.query;
 
-    let sql = 'SELECT * FROM transactions WHERE 1=1';
-    const params: any[] = [];
-    let paramIndex = 1;
+    let queryBuilder = supabase.from('transactions').select('*', { count: 'exact' });
 
     // Filters
     if (agent_id && typeof agent_id === 'string') {
-      sql += ` AND agent_id = $${paramIndex++}`;
-      params.push(agent_id);
+      queryBuilder = queryBuilder.eq('agent_id', agent_id);
     }
 
     if (status && typeof status === 'string') {
-      sql += ` AND status = $${paramIndex++}`;
-      params.push(status);
+      queryBuilder = queryBuilder.eq('status', status);
     }
 
     if (type && typeof type === 'string') {
-      sql += ` AND type = $${paramIndex++}`;
-      params.push(type);
+      queryBuilder = queryBuilder.eq('type', type);
     }
 
     if (from_date && typeof from_date === 'string') {
-      sql += ` AND timestamp >= $${paramIndex++}`;
-      params.push(from_date);
+      queryBuilder = queryBuilder.gte('created_at', from_date);
     }
 
     if (to_date && typeof to_date === 'string') {
-      sql += ` AND timestamp <= $${paramIndex++}`;
-      params.push(to_date);
+      queryBuilder = queryBuilder.lte('created_at', to_date);
     }
 
-    // Count total
-    const countSql = sql.replace('SELECT *', 'SELECT COUNT(*)');
-    const countResult = await query(countSql, params);
-    const total = parseInt(countResult.rows[0].count);
+    // Sorting
+    queryBuilder = queryBuilder.order('created_at', { ascending: false });
 
     // Pagination
     const limitNum = Math.min(parseInt(limit as string) || 50, 100);
     const offsetNum = parseInt(offset as string) || 0;
-    
-    sql += ` ORDER BY timestamp DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-    params.push(limitNum, offsetNum);
+    queryBuilder = queryBuilder.range(offsetNum, offsetNum + limitNum - 1);
 
-    const result = await query(sql, params);
+    const { data, count, error } = await queryBuilder;
 
-    res.json({
-      data: result.rows,
-      total,
-      limit: limitNum,
-      offset: offsetNum,
-    });
+    if (error) {
+      console.error('Error fetching transactions:', error);
+      return res.status(500).json({ error: 'Failed to fetch transactions' });
+    }
+
+    res.json(data || []);
   } catch (error) {
     console.error('Error fetching transactions:', error);
     res.status(500).json({ error: 'Failed to fetch transactions' });
@@ -77,13 +66,17 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const result = await query('SELECT * FROM transactions WHERE id = $1', [id]);
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('id', id)
+      .single();
 
-    if (result.rows.length === 0) {
+    if (error || !data) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
-    res.json(result.rows[0]);
+    res.json(data);
   } catch (error) {
     console.error('Error fetching transaction:', error);
     res.status(500).json({ error: 'Failed to fetch transaction' });
@@ -96,18 +89,18 @@ router.get('/list/recent', async (req: Request, res: Response) => {
     const { limit = 20 } = req.query;
     const limitNum = Math.min(parseInt(limit as string) || 20, 50);
 
-    const result = await query(`
-      SELECT 
-        t.*,
-        a.name as agent_name,
-        a.status as agent_status
-      FROM transactions t
-      LEFT JOIN agents a ON t.agent_id = a.id
-      ORDER BY t.timestamp DESC
-      LIMIT $1
-    `, [limitNum]);
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*, agents(name, status)')
+      .order('created_at', { ascending: false })
+      .limit(limitNum);
 
-    res.json(result.rows);
+    if (error) {
+      console.error('Error fetching recent transactions:', error);
+      return res.status(500).json({ error: 'Failed to fetch transactions' });
+    }
+
+    res.json(data || []);
   } catch (error) {
     console.error('Error fetching recent transactions:', error);
     res.status(500).json({ error: 'Failed to fetch transactions' });

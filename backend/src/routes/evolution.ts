@@ -1,5 +1,5 @@
 import { Request, Response, Router } from 'express';
-import { query } from '../database/db';
+import { supabase } from '../database/supabase';
 import { runEvolutionCycle } from '../services/evolution-engine';
 
 const router = Router();
@@ -8,15 +8,20 @@ const router = Router();
 router.get('/status', async (req: Request, res: Response) => {
   try {
     // Get current generation
-    const genResult = await query(
-      "SELECT * FROM generations WHERE status = 'active' ORDER BY index DESC LIMIT 1"
-    );
-    const generation = genResult.rows[0] || null;
+    const { data: generation } = await supabase
+      .from('generations')
+      .select('*')
+      .eq('status', 'active')
+      .order('index', { ascending: false })
+      .limit(1)
+      .single();
 
     // Get agent counts by status
-    const agentsResult = await query('SELECT status, fitness_score FROM agents');
-    const agents = agentsResult.rows;
+    const { data: agents } = await supabase
+      .from('agents')
+      .select('status, fitness_score');
 
+    const agentsList = agents || [];
     const statusCounts: Record<string, number> = {
       running: 0,
       paused: 0,
@@ -26,25 +31,28 @@ router.get('/status', async (req: Request, res: Response) => {
     };
 
     let totalFitness = 0;
-    agents.forEach(a => {
+    agentsList.forEach(a => {
       if (a.status in statusCounts) {
         statusCounts[a.status]++;
       }
-      totalFitness += parseFloat(a.fitness_score || 0);
+      totalFitness += parseFloat(a.fitness_score || '0');
     });
 
-    const avgFitness = agents.length ? totalFitness / agents.length : 0;
+    const avgFitness = agentsList.length ? totalFitness / agentsList.length : 0;
 
     // Get last evolution event
-    const lastEventResult = await query(
-      "SELECT * FROM system_events WHERE event_type = 'evolution_completed' ORDER BY timestamp DESC LIMIT 1"
-    );
-    const lastEvent = lastEventResult.rows[0] || null;
+    const { data: lastEvent } = await supabase
+      .from('system_events')
+      .select('*')
+      .eq('event_type', 'evolution_completed')
+      .order('timestamp', { ascending: false })
+      .limit(1)
+      .single();
 
     res.json({
-      currentGeneration: generation,
+      currentGeneration: generation || null,
       agentCounts: statusCounts,
-      totalAgents: agents.length,
+      totalAgents: agentsList.length,
       avgFitness: Math.round(avgFitness * 1000) / 1000,
       lastEvolutionAt: lastEvent?.timestamp || null,
       config: {
@@ -82,14 +90,19 @@ router.get('/history', async (req: Request, res: Response) => {
     const { limit = 20 } = req.query;
     const limitNum = Math.min(parseInt(limit as string) || 20, 100);
 
-    const result = await query(`
-      SELECT * FROM system_events
-      WHERE event_type IN ('evolution_started', 'evolution_completed', 'generation_created')
-      ORDER BY timestamp DESC
-      LIMIT $1
-    `, [limitNum]);
+    const { data, error } = await supabase
+      .from('system_events')
+      .select('*')
+      .in('event_type', ['evolution_started', 'evolution_completed', 'generation_created'])
+      .order('timestamp', { ascending: false })
+      .limit(limitNum);
 
-    res.json(result.rows);
+    if (error) {
+      console.error('Error fetching evolution history:', error);
+      return res.status(500).json({ error: 'Failed to fetch history' });
+    }
+
+    res.json(data || []);
   } catch (error) {
     console.error('Error fetching evolution history:', error);
     res.status(500).json({ error: 'Failed to fetch history' });
@@ -102,41 +115,44 @@ router.get('/lineage/:agentId', async (req: Request, res: Response) => {
     const { agentId } = req.params;
 
     // Get the agent
-    const agentResult = await query('SELECT * FROM agents WHERE id = $1', [agentId]);
+    const { data: agent, error } = await supabase
+      .from('agents')
+      .select('*')
+      .eq('id', agentId)
+      .single();
     
-    if (agentResult.rows.length === 0) {
+    if (error || !agent) {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
-    const agent = agentResult.rows[0];
     const lineage: any[] = [agent];
     let currentParentIds = agent.parent_ids || [];
     
     // Get parents recursively (up to 3 generations back)
     for (let i = 0; i < 3 && currentParentIds.length > 0; i++) {
-      const parentsResult = await query(
-        'SELECT * FROM agents WHERE id = ANY($1::uuid[])',
-        [currentParentIds]
-      );
+      const { data: parents } = await supabase
+        .from('agents')
+        .select('*')
+        .in('id', currentParentIds);
 
-      if (parentsResult.rows.length > 0) {
-        lineage.push(...parentsResult.rows);
-        currentParentIds = parentsResult.rows.flatMap(p => p.parent_ids || []);
+      if (parents && parents.length > 0) {
+        lineage.push(...parents);
+        currentParentIds = parents.flatMap(p => p.parent_ids || []);
       } else {
         break;
       }
     }
 
     // Get children
-    const childrenResult = await query(
-      'SELECT * FROM agents WHERE $1 = ANY(parent_ids)',
-      [agentId]
-    );
+    const { data: children } = await supabase
+      .from('agents')
+      .select('*')
+      .contains('parent_ids', [agentId]);
 
     res.json({
       agent,
       ancestors: lineage.slice(1),
-      descendants: childrenResult.rows,
+      descendants: children || [],
     });
   } catch (error) {
     console.error('Error fetching lineage:', error);

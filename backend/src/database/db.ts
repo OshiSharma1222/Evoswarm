@@ -1,26 +1,33 @@
 import dotenv from 'dotenv';
 import { Pool, QueryResult } from 'pg';
+import { supabase } from './supabase';
 
 dotenv.config();
 
-// Supabase PostgreSQL connection pool
+// Use Supabase client as primary, fallback to PostgreSQL pool
+const USE_SUPABASE_CLIENT = true;
+
+// Supabase PostgreSQL connection pool (backup)
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false,
   },
-  max: 20,
+  max: 10,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: 10000,
 });
 
-// Query helper
+// Query helper - uses Supabase client for better reliability
 export async function query(text: string, params?: any[]): Promise<QueryResult> {
   const start = Date.now();
   try {
+    // Use pool for raw SQL queries
     const res = await pool.query(text, params);
     const duration = Date.now() - start;
-    console.log('Executed query', { text: text.substring(0, 100), duration, rows: res.rowCount });
+    if (duration > 1000) {
+      console.log('Slow query', { text: text.substring(0, 100), duration, rows: res.rowCount });
+    }
     return res;
   } catch (error) {
     console.error('Database query error:', error);

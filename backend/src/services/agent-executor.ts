@@ -316,6 +316,6 @@ export function startAgentExecutor(io: SocketIOServer): void {
     executorLoop();
     setInterval(executorLoop, pollInterval);
   } catch (error: any) {
-    console.warn('⚠️  Failed to start agent executor:', error.message);
+    console.warn(' Failed to start agent executor:', error.message);
   }
 }

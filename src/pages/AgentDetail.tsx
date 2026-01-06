@@ -1,22 +1,60 @@
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Activity } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import DataTable, { Column } from '../components/DataTable'
 import KpiCard from '../components/KpiCard'
 import Section from '../components/Section'
 import StatusPill from '../components/StatusPill'
-import { generatePnLTimeSeries, mockAgents, mockTransactions, Transaction } from '../lib/mockData'
+import { fetchAgent, fetchAgentTransactions, pauseAgent, resumeAgent, type Agent, type Transaction } from '../lib/api'
 
 export default function AgentDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  
+  const [agent, setAgent] = useState<Agent | null>(null)
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const agent = mockAgents.find((a) => a.id === id)
+  useEffect(() => {
+    if (!id) return
+    
+    const loadData = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const [agentData, txData] = await Promise.all([
+          fetchAgent(id),
+          fetchAgentTransactions(id)
+        ])
+        setAgent(agentData)
+        setTransactions(txData)
+      } catch (err) {
+        console.error('Error loading agent:', err)
+        setError(err instanceof Error ? err.message : 'Failed to load agent')
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadData()
+    const interval = setInterval(loadData, 30000) // Refresh every 30s
+    return () => clearInterval(interval)
+  }, [id])
 
-  if (!agent) {
+  if (loading && !agent) {
     return (
       <div className="text-center py-12">
-        <p className="text-dark-500">Agent not found</p>
+        <p className="text-dark-500">Loading agent...</p>
+      </div>
+    )
+  }
+
+  if (error || !agent) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-dark-500">{error || 'Agent not found'}</p>
         <button
           onClick={() => navigate('/agents')}
           className="mt-4 text-emerald-500 hover:text-emerald-400"
@@ -27,22 +65,24 @@ export default function AgentDetail() {
     )
   }
 
-  // Generate agent-specific PnL data
-  const agentPnLData = generatePnLTimeSeries(30).map((p) => ({
-    date: new Date(p.t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    profit: p.v * 0.25, // Scale down for single agent
-  }))
+  // Generate agent-specific PnL data from transactions
+  const agentPnLData = transactions
+    .slice(0, 30)
+    .reverse()
+    .map((tx, i) => ({
+      date: new Date(tx.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      profit: transactions.slice(0, i + 1).reduce((sum, t) => sum + t.pnl_realized, 0)
+    }))
 
-  // Filter transactions for this agent
-  const agentTransactions = mockTransactions.filter((tx) => tx.agentId === agent.id)
+  const agentTransactions = transactions
 
   const txColumns: Column<Transaction>[] = [
     {
-      key: 'timestamp',
+      key: 'created_at',
       header: 'Timestamp',
       render: (row) => (
         <span className="text-dark-700 text-sm">
-          {new Date(row.timestamp).toLocaleString()}
+          {new Date(row.created_at).toLocaleString()}
         </span>
       ),
     },
@@ -76,11 +116,11 @@ export default function AgentDetail() {
       render: (row) => <span className="text-dark-500">${row.fee.toFixed(2)}</span>,
     },
     {
-      key: 'pnlRealized',
+      key: 'pnl_realized',
       header: 'PnL',
       render: (row) => (
-        <span className={`font-medium ${row.pnlRealized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-          ${row.pnlRealized.toFixed(2)}
+        <span className={`font-medium ${row.pnl_realized >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+          ${row.pnl_realized.toFixed(2)}
         </span>
       ),
     },
@@ -90,10 +130,10 @@ export default function AgentDetail() {
       render: (row) => <StatusPill status={row.status === 'filled' ? 'ok' : 'warn'} text={row.status} />,
     },
     {
-      key: 'txHash',
+      key: 'tx_hash',
       header: 'Tx Hash',
       render: (row) => (
-        <span className="text-dark-500 text-sm font-mono">{row.txHash}</span>
+        <span className="text-dark-500 text-sm font-mono">{row.tx_hash || 'N/A'}</span>
       ),
     },
   ]
@@ -121,25 +161,25 @@ export default function AgentDetail() {
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          label="Profit (7D)"
-          value={`$${agent.profitPeriod.toFixed(2)}`}
-          delta={agent.profitPeriod > 0 ? 15.2 : -8.3}
-          deltaDirection={agent.profitPeriod > 0 ? 'up' : 'down'}
+          label="Profit (Period)"
+          value={`$${agent.profit_period.toFixed(2)}`}
+          delta={agent.profit_period > 0 ? 15.2 : -8.3}
+          deltaDirection={agent.profit_period > 0 ? 'up' : 'down'}
         />
         <KpiCard
           label="Total Profit"
-          value={`$${agent.profitAllTime.toFixed(2)}`}
+          value={`$${agent.profit_all_time.toFixed(2)}`}
           helperText="All time"
         />
         <KpiCard
           label="Win Rate"
-          value={`${(agent.winRatePeriod * 100).toFixed(1)}%`}
-          helperText={`${agent.tradeCountPeriod} trades`}
+          value={`${(agent.win_rate_period * 100).toFixed(1)}%`}
+          helperText={`${agent.trade_count_period} trades`}
         />
         <KpiCard
-          label="Generation"
-          value={`#${agent.generation}`}
-          helperText={`Last active: ${new Date(agent.lastHeartbeatAt).toLocaleTimeString()}`}
+          label="Fitness Score"
+          value={agent.fitness_score.toFixed(2)}
+          helperText={`Gen ${agent.generation}`}
         />
       </div>
 

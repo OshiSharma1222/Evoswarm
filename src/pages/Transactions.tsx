@@ -1,10 +1,60 @@
+import { useEffect, useState } from 'react'
 import DataTable, { Column } from '../components/DataTable'
 import Section from '../components/Section'
 import StatusPill from '../components/StatusPill'
-import { mockTransactions, Transaction } from '../lib/mockData'
+import { fetchTransactions, Transaction } from '../lib/api'
+
+interface UITransaction {
+  id: string
+  timestamp: string
+  agentId: string
+  agentName: string
+  type: 'buy' | 'sell' | 'swap'
+  symbol: string
+  qty: number
+  price: number
+  fee: number
+  pnlRealized: number
+  status: 'filled' | 'pending' | 'failed'
+  txHash: string
+}
 
 export default function Transactions() {
-  const columns: Column<Transaction>[] = [
+  const [transactions, setTransactions] = useState<UITransaction[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadTransactions() {
+      try {
+        const data = await fetchTransactions(100)
+        setTransactions(
+          data.map((t: Transaction) => ({
+            id: t.id,
+            timestamp: t.created_at,
+            agentId: t.agent_id,
+            agentName: `Agent ${t.agent_id.slice(0, 6)}`,
+            type: t.type,
+            symbol: t.symbol || 'ETH/USDC',
+            qty: t.qty || 0,
+            price: t.price || 0,
+            fee: t.fee || 0,
+            pnlRealized: t.pnl_realized || 0,
+            status: t.status,
+            txHash: t.tx_hash || 'pending...',
+          }))
+        )
+      } catch (err) {
+        console.error('Failed to load transactions:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadTransactions()
+    const interval = setInterval(loadTransactions, 15000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const columns: Column<UITransaction>[] = [
     {
       key: 'timestamp',
       header: 'Timestamp',
@@ -76,16 +126,28 @@ export default function Transactions() {
     },
   ]
 
-  const totalPnL = mockTransactions.reduce((sum, tx) => sum + tx.pnlRealized, 0)
-  const filledCount = mockTransactions.filter(tx => tx.status === 'filled').length
+  const totalPnL = transactions.reduce((sum, tx) => sum + tx.pnlRealized, 0)
+  const filledCount = transactions.filter(tx => tx.status === 'filled').length
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-dark-500">Loading transactions...</div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-8">
       <Section
         title="Transaction History"
-        subtitle={`${mockTransactions.length} total transactions • ${filledCount} filled • Total PnL: $${totalPnL.toFixed(2)}`}
+        subtitle={`${transactions.length} total transactions • ${filledCount} filled • Total PnL: $${totalPnL.toFixed(2)}`}
       >
-        <DataTable columns={columns} data={mockTransactions} rowKey="id" />
+        {transactions.length > 0 ? (
+          <DataTable columns={columns} data={transactions} rowKey="id" />
+        ) : (
+          <div className="text-center py-8 text-dark-500">No transactions yet</div>
+        )}
       </Section>
     </div>
   )

@@ -7,13 +7,16 @@
     "test": "hardhat test",
     "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
     "deploy:testnet": "hardhat run scripts/deploy.ts --network amadeusTestnet",
-    "verify": "hardhat verify --network amadeusTestnet"
+    "verify": "hardhat verify --network amadeusTestnet",
+    "node": "hardhat node"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
     "@openzeppelin/contracts": "^5.0.1",
+    "@types/node": "^20.0.0",
     "dotenv": "^16.4.5",
     "hardhat": "^2.19.4",
+    "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   }
 }

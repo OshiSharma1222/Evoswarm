@@ -1,5 +1,5 @@
 import { Request, Response, Router } from 'express';
-import { query } from '../database/db';
+import { supabase } from '../database/supabase';
 
 const router = Router();
 
@@ -8,46 +8,36 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const { status, generation, sort = 'fitness_score', order = 'desc', limit = 50, offset = 0 } = req.query;
 
-    let sql = 'SELECT * FROM agents WHERE 1=1';
-    const params: any[] = [];
-    let paramIndex = 1;
+    let queryBuilder = supabase.from('agents').select('*', { count: 'exact' });
 
     // Filter by status
     if (status && typeof status === 'string') {
-      sql += ` AND status = $${paramIndex++}`;
-      params.push(status);
+      queryBuilder = queryBuilder.eq('status', status);
     }
 
     // Filter by generation
     if (generation && typeof generation === 'string') {
-      sql += ` AND generation_index = $${paramIndex++}`;
-      params.push(parseInt(generation));
+      queryBuilder = queryBuilder.eq('generation_index', parseInt(generation));
     }
-
-    // Count total (before pagination)
-    const countSql = sql.replace('SELECT *', 'SELECT COUNT(*)');
-    const countResult = await query(countSql, params);
-    const total = parseInt(countResult.rows[0].count);
 
     // Sorting
     const sortColumn = typeof sort === 'string' ? sort : 'fitness_score';
-    const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
-    sql += ` ORDER BY ${sortColumn} ${sortOrder}`;
+    const ascending = order === 'asc';
+    queryBuilder = queryBuilder.order(sortColumn, { ascending });
 
     // Pagination
     const limitNum = Math.min(parseInt(limit as string) || 50, 100);
     const offsetNum = parseInt(offset as string) || 0;
-    sql += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-    params.push(limitNum, offsetNum);
+    queryBuilder = queryBuilder.range(offsetNum, offsetNum + limitNum - 1);
 
-    const result = await query(sql, params);
+    const { data, count, error } = await queryBuilder;
 
-    res.json({
-      data: result.rows,
-      total,
-      limit: limitNum,
-      offset: offsetNum,
-    });
+    if (error) {
+      console.error('Error fetching agents:', error);
+      return res.status(500).json({ error: 'Failed to fetch agents' });
+    }
+
+    res.json(data || []);
   } catch (error) {
     console.error('Error fetching agents:', error);
     res.status(500).json({ error: 'Failed to fetch agents' });
@@ -59,13 +49,17 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const result = await query('SELECT * FROM agents WHERE id = $1', [id]);
+    const { data, error } = await supabase
+      .from('agents')
+      .select('*')
+      .eq('id', id)
+      .single();
 
-    if (result.rows.length === 0) {
+    if (error || !data) {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
-    res.json(result.rows[0]);
+    res.json(data);
   } catch (error) {
     console.error('Error fetching agent:', error);
     res.status(500).json({ error: 'Failed to fetch agent' });
@@ -77,16 +71,17 @@ router.post('/:id/pause', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const result = await query(
-      'UPDATE agents SET status = $1 WHERE id = $2 RETURNING *',
-      ['paused', id]
-    );
-
-    if (result.rows.length === 0) {
+    const { data, error } = await supabase
+      .from('agents')
+      .update({ status: 'paused' })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error || !data) {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
-    res.json(result.rows[0]);
+    res.json(data);
   } catch (error) {
     console.error('Error pausing agent:', error);
     res.status(500).json({ error: 'Failed to pause agent' });
@@ -98,16 +93,18 @@ router.post('/:id/resume', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const result = await query(
-      'UPDATE agents SET status = $1 WHERE id = $2 RETURNING *',
-      ['running', id]
-    );
+    const { data, error } = await supabase
+      .from('agents')
+      .update({ status: 'running' })
+      .eq('id', id)
+      .select()
+      .single();
 
-    if (result.rows.length === 0) {
+    if (error || !data) {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
-    res.json(result.rows[0]);
+    res.json(data);
   } catch (error) {
     console.error('Error resuming agent:', error);
     res.status(500).json({ error: 'Failed to resume agent' });
@@ -123,23 +120,19 @@ router.get('/:id/transactions', async (req: Request, res: Response) => {
     const limitNum = Math.min(parseInt(limit as string) || 50, 100);
     const offsetNum = parseInt(offset as string) || 0;
 
-    const countResult = await query(
-      'SELECT COUNT(*) FROM transactions WHERE agent_id = $1',
-      [id]
-    );
-    const total = parseInt(countResult.rows[0].count);
+    const { data, count, error } = await supabase
+      .from('transactions')
+      .select('*', { count: 'exact' })
+      .eq('agent_id', id)
+      .order('created_at', { ascending: false })
+      .range(offsetNum, offsetNum + limitNum - 1);
 
-    const result = await query(
-      'SELECT * FROM transactions WHERE agent_id = $1 ORDER BY timestamp DESC LIMIT $2 OFFSET $3',
-      [id, limitNum, offsetNum]
-    );
+    if (error) {
+      console.error('Error fetching transactions:', error);
+      return res.status(500).json({ error: 'Failed to fetch transactions' });
+    }
 
-    res.json({
-      data: result.rows,
-      total,
-      limit: limitNum,
-      offset: offsetNum,
-    });
+    res.json(data || []);
   } catch (error) {
     console.error('Error fetching agent transactions:', error);
     res.status(500).json({ error: 'Failed to fetch transactions' });
@@ -155,23 +148,19 @@ router.get('/:id/logs', async (req: Request, res: Response) => {
     const limitNum = Math.min(parseInt(limit as string) || 50, 100);
     const offsetNum = parseInt(offset as string) || 0;
 
-    const countResult = await query(
-      'SELECT COUNT(*) FROM execution_logs WHERE agent_id = $1',
-      [id]
-    );
-    const total = parseInt(countResult.rows[0].count);
+    const { data, count, error } = await supabase
+      .from('execution_logs')
+      .select('*', { count: 'exact' })
+      .eq('agent_id', id)
+      .order('created_at', { ascending: false })
+      .range(offsetNum, offsetNum + limitNum - 1);
 
-    const result = await query(
-      'SELECT * FROM execution_logs WHERE agent_id = $1 ORDER BY timestamp DESC LIMIT $2 OFFSET $3',
-      [id, limitNum, offsetNum]
-    );
+    if (error) {
+      console.error('Error fetching logs:', error);
+      return res.status(500).json({ error: 'Failed to fetch logs' });
+    }
 
-    res.json({
-      data: result.rows,
-      total,
-      limit: limitNum,
-      offset: offsetNum,
-    });
+    res.json(data || []);
   } catch (error) {
     console.error('Error fetching agent logs:', error);
     res.status(500).json({ error: 'Failed to fetch logs' });

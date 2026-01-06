@@ -18,6 +18,7 @@ import transactionsRouter from './routes/transactions';
 // Import services
 import { initDatabase } from './database/db';
 import { startAgentExecutor } from './services/agent-executor';
+import { initBlockchain } from './services/blockchain';
 import { startIndexer } from './services/indexer';
 import { initWebSocket } from './websocket/socket';
 
@@ -71,6 +72,13 @@ async function bootstrap() {
       console.warn('⚠️  Database connection failed:', dbError.message);
       console.warn('⚠️  Server will start but API endpoints may not work');
       console.warn('⚠️  Make sure DATABASE_URL is set in your .env file');
+    }
+
+    // Initialize blockchain connection
+    try {
+      await initBlockchain();
+    } catch (blockchainError: any) {
+      console.warn('⚠️  Blockchain connection failed:', blockchainError.message);
     }
 
     // Initialize WebSocket
