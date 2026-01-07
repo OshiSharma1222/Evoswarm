@@ -82,7 +82,7 @@ export interface Transaction {
   symbol: string;
   qty: number;
   price: number;
-  fee: number;
+  fees: number;
   pnlRealized: number | null;
   status: TransactionStatus;
   txHash: string | null;

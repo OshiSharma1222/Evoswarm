@@ -1,15 +1,14 @@
-import { Request, Response, Router } from 'express';
 import { ethers } from 'ethers';
+import { Request, Response, Router } from 'express';
 import {
   agentRegistry,
   executionRouter,
-  stakingPool,
-  provider,
-  signer,
-  registerAgentOnChain,
   getAgentFromChain,
   getAllAgentsFromChain,
   getChainStats,
+  provider,
+  registerAgentOnChain,
+  signer
 } from '../services/blockchain';
 
 const router = Router();
@@ -152,7 +151,7 @@ router.get('/trades/:agentId', async (req: Request, res: Response) => {
     const agentIdBytes = ethers.id(agentId);
     
     // Get trade count for this agent
-    const trades = [];
+    const trades: any[] = [];
     
     // Try to get trades from the agentTrades mapping
     // Note: This requires iteration since Solidity mappings can't be enumerated

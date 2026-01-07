@@ -10,14 +10,15 @@ dotenv.config();
 
 // Import routes
 import agentsRouter from './routes/agents';
+import blockchainRouter from './routes/blockchain';
 import evolutionRouter from './routes/evolution';
 import generationsRouter from './routes/generations';
 import metricsRouter from './routes/metrics';
-import transactionsRouter from './routes/transactions';
 import stakingRouter from './routes/staking';
-import blockchainRouter from './routes/blockchain';
+import transactionsRouter from './routes/transactions';
 
 // Import services
+import { initAmadeusClient } from './chain/amadeus-client';
 import { initDatabase } from './database/db';
 import { startAgentExecutor } from './services/agent-executor';
 import { initBlockchain } from './services/blockchain';
@@ -78,11 +79,18 @@ async function bootstrap() {
       console.warn('⚠️  Make sure DATABASE_URL is set in your .env file');
     }
 
-    // Initialize blockchain connection
+    // Initialize blockchain connection (EVM)
     try {
       await initBlockchain();
     } catch (blockchainError: any) {
-      console.warn('⚠️  Blockchain connection failed:', blockchainError.message);
+      console.warn('⚠️  EVM Blockchain connection failed:', blockchainError.message);
+    }
+
+    // Initialize Amadeus client
+    try {
+      initAmadeusClient();
+    } catch (amadeusError: any) {
+      console.warn('⚠️  Amadeus client init failed:', amadeusError.message);
     }
 
     // Initialize WebSocket

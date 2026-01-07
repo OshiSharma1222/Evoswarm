@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   block_number BIGINT,
   gas_used BIGINT,
   gas_price DECIMAL(36, 18),
+  on_chain BOOLEAN DEFAULT false,
   
   -- Metadata
   strategy_signal VARCHAR(100),

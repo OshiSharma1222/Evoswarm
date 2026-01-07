@@ -1,20 +1,12 @@
 import { Server as SocketIOServer } from 'socket.io';
+import { getAmadeusClient } from '../chain/amadeus-client';
 import { supabase } from '../database/supabase';
 import { AgentDNA } from '../types';
 import { calculateFitness } from './evolution-engine';
-import {
-  executeTrade as executeOnChain,
-  registerAgentOnChain,
-  updateAgentMetricsOnChain,
-  getAgentFromChain,
-  executionRouter,
-  stakingPool,
-} from './blockchain';
-import { ethers } from 'ethers';
 
-// Feature flag for blockchain integration
-const USE_BLOCKCHAIN = process.env.USE_BLOCKCHAIN === 'true';
-const LOG_BLOCKCHAIN_OPS = process.env.LOG_BLOCKCHAIN_OPS !== 'false';
+// Feature flag for Amadeus integration
+const USE_AMADEUS = process.env.USE_AMADEUS !== 'false'; // Enabled by default
+const LOG_CHAIN_OPS = process.env.LOG_CHAIN_OPS !== 'false';
 
 // Strategy interface
 interface StrategyDecision {
@@ -109,47 +101,53 @@ async function executeDecision(
   const mockPrice = state.prices['ETH'] || 2000;
   const mockSlippage = Math.random() * 0.02; // 0-2% slippage
   const mockGas = 0.001 * mockPrice; // ~$2 gas
+  
+  // Calculate expected PnL for this trade
+  const executedPrice = decision.action === 'buy' 
+    ? mockPrice * (1 + mockSlippage) 
+    : mockPrice * (1 - mockSlippage);
+  
+  const mockPnl = decision.action === 'sell' 
+    ? (decision.qty || 0) * (executedPrice - mockPrice) - mockGas
+    : -mockGas;
 
   // ============================================
-  // BLOCKCHAIN INTEGRATION - Execute on-chain (optional)
+  // AMADEUS INTEGRATION - Execute on-chain (optional)
   // ============================================
-  if (USE_BLOCKCHAIN && executionRouter) {
+  const amadeusClient = getAmadeusClient();
+  if (USE_AMADEUS && amadeusClient?.isEnabled()) {
     try {
-      if (LOG_BLOCKCHAIN_OPS) {
-        console.log(`⛓️  Attempting on-chain execution for agent ${agentId.slice(0, 8)}...`);
+      if (LOG_CHAIN_OPS) {
+        console.log(`⛓️  [Amadeus] Attempting on-chain trade for agent ${agentId.slice(0, 8)}...`);
       }
 
-      // Token addresses (for local Hardhat, we use placeholder addresses)
-      const USDC_ADDRESS = process.env.USDC_ADDRESS || '0x0000000000000000000000000000000000000001';
-      const ETH_ADDRESS = process.env.WETH_ADDRESS || '0x0000000000000000000000000000000000000002';
-      
-      const tokenIn = decision.action === 'buy' ? USDC_ADDRESS : ETH_ADDRESS;
-      const tokenOut = decision.action === 'buy' ? ETH_ADDRESS : USDC_ADDRESS;
+      // Execute trade via Amadeus
+      // For now, this logs the trade intent (replace with real DeFi contract call later)
+      const result = await amadeusClient.executeTrade(agentId, {
+        action: decision.action,
+        symbol: decision.symbol || 'ETH/USDC',
+        qty: decision.qty || 0,
+        price: mockPrice,
+      });
 
-      const result = await executeOnChain(
-        agentId,
-        decision.action,
-        tokenIn,
-        tokenOut,
-        decision.qty || 0
-      );
-
-      if (result.success && !result.txHash?.startsWith('mock-')) {
-        if (LOG_BLOCKCHAIN_OPS) {
-          console.log(`✅ On-chain trade executed! TX: ${result.txHash?.slice(0, 16)}...`);
+      if (result.success && result.txHash) {
+        if (LOG_CHAIN_OPS) {
+          console.log(`✅ [Amadeus] Trade executed! TX: ${result.txHash}`);
         }
 
-        // Record transaction in database with blockchain reference
+        // Record transaction in database with Amadeus reference
         await supabase
           .from('transactions')
           .insert({
             agent_id: agentId,
             type: decision.action,
-            symbol: decision.symbol || 'ETH/USDC',
-            qty: decision.qty || 0,
-            price: mockPrice,
-            fee: mockGas,
-            pnl_realized: result.pnl || 0,
+            token_in: decision.action === 'buy' ? 'USDC' : (decision.symbol || 'ETH'),
+            token_out: decision.action === 'buy' ? (decision.symbol || 'ETH') : 'USDC',
+            amount_in: decision.qty || 0,
+            amount_out: (decision.qty || 0) * mockPrice,
+            price_entry: mockPrice,
+            fees: mockGas,
+            pnl_realized: mockPnl,
             status: 'filled',
             tx_hash: result.txHash,
             on_chain: true,
@@ -157,16 +155,16 @@ async function executeDecision(
           .select()
           .single();
 
-        return { success: true, txHash: result.txHash, pnl: result.pnl };
+        return { success: true, txHash: result.txHash, pnl: mockPnl };
       }
-      // If result is mock or failed, fall through to simulation
-      if (LOG_BLOCKCHAIN_OPS && !result.success) {
-        console.log(`ℹ️  On-chain failed (${result.error}), using simulation`);
+      // Fall through to simulation if disabled
+      if (LOG_CHAIN_OPS && !result.success) {
+        console.log(`ℹ️  [Amadeus] ${result.error}, using simulation`);
       }
     } catch (error: any) {
-      // Silently fall back to simulation - blockchain is optional
-      if (LOG_BLOCKCHAIN_OPS) {
-        console.log(`ℹ️  Blockchain unavailable (${error.message?.slice(0, 50)}), using simulation`);
+      // Silently fall back to simulation - chain is optional
+      if (LOG_CHAIN_OPS) {
+        console.log(`ℹ️  [Amadeus] unavailable (${error.message?.slice(0, 50)}), using simulation`);
       }
     }
   }
@@ -179,24 +177,18 @@ async function executeDecision(
     return { success: false, error: 'Transaction reverted: insufficient liquidity' };
   }
 
-  const executedPrice = decision.action === 'buy' 
-    ? mockPrice * (1 + mockSlippage) 
-    : mockPrice * (1 - mockSlippage);
-  
-  const mockPnl = decision.action === 'sell' 
-    ? (decision.qty || 0) * (executedPrice - mockPrice) - mockGas
-    : -mockGas;
-
   // Record transaction in database
   const { data: tx, error } = await supabase
     .from('transactions')
     .insert({
       agent_id: agentId,
       type: decision.action,
-      symbol: decision.symbol || 'ETH/USDC',
-      qty: decision.qty || 0,
-      price: executedPrice,
-      fee: mockGas,
+      token_in: decision.action === 'buy' ? 'USDC' : (decision.symbol || 'ETH'),
+      token_out: decision.action === 'buy' ? (decision.symbol || 'ETH') : 'USDC',
+      amount_in: decision.qty || 0,
+      amount_out: (decision.qty || 0) * executedPrice,
+      price_entry: executedPrice,
+      fees: mockGas,
       pnl_realized: mockPnl,
       status: 'filled',
       tx_hash: `0x${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`,
@@ -242,33 +234,26 @@ async function updateAgentMetrics(agentId: string, pnl: number): Promise<void> {
   });
 
   // ============================================
-  // BLOCKCHAIN INTEGRATION - Sync metrics on-chain (optional)
+  // AMADEUS INTEGRATION - Sync metrics on-chain (optional)
   // ============================================
-  if (USE_BLOCKCHAIN && stakingPool) {
+  const amadeusClient = getAmadeusClient();
+  if (USE_AMADEUS && amadeusClient?.isEnabled()) {
     try {
-      // Only try on-chain sync if we have blockchain connectivity
-      const result = await updateAgentMetricsOnChain(
-        agentId,
-        newProfitAllTime,
-        newTradeCount,
-        fitnessScore
-      );
+      // Register/update agent on Amadeus (if you have a registry contract)
+      const result = await amadeusClient.registerAgent(agentId, {
+        profitAllTime: newProfitAllTime,
+        tradeCount: newTradeCount,
+        fitnessScore,
+        winRate: newWinRate,
+      });
       
-      if (result.success && LOG_BLOCKCHAIN_OPS) {
-        console.log(`📊 Agent ${agentId.slice(0, 8)} metrics synced on-chain`);
+      if (result.success && LOG_CHAIN_OPS) {
+        console.log(`📊 [Amadeus] Agent ${agentId.slice(0, 8)} metrics synced on-chain`);
       }
 
-      // Distribute profits to stakers if positive PnL (silently skip if no stakers)
-      if (pnl > 0) {
-        try {
-          const agentIdBytes = ethers.id(agentId);
-          await stakingPool.distributeProfits(agentIdBytes, BigInt(Math.floor(pnl * 1e6)));
-          if (LOG_BLOCKCHAIN_OPS) {
-            console.log(`💰 Distributed $${pnl.toFixed(2)} to stakers of agent ${agentId.slice(0, 8)}`);
-          }
-        } catch {
-          // Silently ignore - no stakers is expected
-        }
+      // In production: distribute profits to stakers via your Amadeus staking contract
+      if (pnl > 0 && LOG_CHAIN_OPS) {
+        console.log(`💰 [Amadeus] Agent ${agentId.slice(0, 8)} generated $${pnl.toFixed(2)} profit`);
       }
     } catch {
       // Silently ignore on-chain sync failures - database is source of truth

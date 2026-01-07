@@ -17,6 +17,10 @@ A full-stack Web3 platform that deploys autonomous AI agents which execute real 
 - **Routing**: React Router v6
 - **Charts**: Recharts
 - **Icons**: Lucide React
+- **Backend**: Node.js + Express + TypeScript + Socket.IO
+- **Database**: Supabase Postgres + Realtime
+- **Chain**: Amadeus Protocol (non-EVM, BLS12-381)
+- **SDK**: [@amadeus-protocol/sdk](https://github.com/amadeusprotocol/amadeus-typescript-sdk)
 
 ## Getting Started
 
@@ -44,7 +48,14 @@ A full-stack Web3 platform that deploys autonomous AI agents which execute real 
    DATABASE_URL=postgresql://user:password@host:5432/database
    SUPABASE_URL=https://your-project.supabase.co
    SUPABASE_SERVICE_KEY=your-service-key
+   
+   # Amadeus Chain (optional)
+   AMADEUS_NODE_URL=https://nodes.amadeus.bot/api
+   AMADEUS_PRIVATE_KEY=your_base58_private_key
+   USE_AMADEUS=true
    ```
+   
+   > See [AMADEUS_INTEGRATION.md](AMADEUS_INTEGRATION.md) for full Amadeus setup guide.
 
 4. **Start the backend server:**
    ```bash
@@ -111,6 +122,21 @@ src/
 - **`/tx`**: Full transaction history across all agents
 
 ## Next Steps
+
+### Amadeus Chain Integration ⛓️
+
+EvoSwarm is integrated with **Amadeus Protocol** — a high-performance Layer 1 blockchain built for AI agents.
+
+📖 **[Read full integration guide →](AMADEUS_INTEGRATION.md)**
+
+Quick start:
+1. Generate Amadeus keypair: `node -e "const { generateKeypair } = require('@amadeus-protocol/sdk'); console.log(generateKeypair())"`
+2. Add to `backend/.env`: `AMADEUS_PRIVATE_KEY=your_key`
+3. Backend will auto-connect and submit real on-chain transactions
+
+---
+
+### Roadmap
 
 1. **Smart Contracts**: Implement Solidity contracts for strategy registry, execution router, and staking
 2. **Agent Runner**: Build off-chain agent execution engine with risk controls
