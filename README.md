@@ -10,6 +10,18 @@ A full-stack Web3 platform that deploys autonomous AI agents which execute real 
 - **Transaction Proof Layer**: Transparent on-chain execution history
 - **Dark-First UI**: Clean, futuristic interface inspired by modern dev tools
 
+### Evolutionary Cycle 🧬
+
+```mermaid
+stateDiagram-v2
+    [*] --> Generation_Start
+    Generation_Start --> Execution_Phase: Spawn Agents
+    Execution_Phase --> Evaluation_Phase: Run Strategies
+    Evaluation_Phase --> Selection_Phase: Calculate PnL
+    Selection_Phase --> Mutation_Phase: Select Top Performers
+    Mutation_Phase --> Generation_Start: Create Next Gen
+```
+
 ## Tech Stack
 
 - **Frontend**: React 18 + TypeScript + Vite
@@ -21,6 +33,30 @@ A full-stack Web3 platform that deploys autonomous AI agents which execute real 
 - **Database**: Supabase Postgres + Realtime
 - **Chain**: Amadeus Protocol (non-EVM, BLS12-381)
 - **SDK**: [@amadeus-protocol/sdk](https://github.com/amadeusprotocol/amadeus-typescript-sdk)
+
+### System Architecture 🏗️
+
+```mermaid
+graph TD
+    User([User]) <--> Client[Frontend (React + Vite)]
+    Client <-->|Socket.IO / API| Server[Backend (Node.js + Express)]
+    
+    subgraph Data Layer
+        Server <-->|Persist| DB[(Supabase Postgres)]
+    end
+    
+    subgraph Blockchain Layer
+        Server <-->|Transactions| Chain[Amadeus Protocol]
+    end
+    
+    subgraph "Evolution Engine"
+        Server --> Manager[Agent Manager]
+        Manager -->|Spawn| Agent1[Agent 1]
+        Manager -->|Spawn| Agent2[Agent 2]
+        Agent1 -->|Execute| Chain
+        Agent2 -->|Execute| Chain
+    end
+```
 
 ## Getting Started
 
